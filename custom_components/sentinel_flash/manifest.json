@@ -1,0 +1,25 @@
+{
+  "domain": "sentinel_flash",
+  "name": "Sentinel Flash",
+  "after_dependencies": [
+    "lovelace"
+  ],
+  "codeowners": [
+    "@nottelegraham"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http",
+    "zeroconf"
+  ],
+  "documentation": "https://github.com/nottelegraham/sentinel-flash-ha",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/nottelegraham/sentinel-flash-ha/issues",
+  "requirements": [],
+  "version": "0.1.0",
+  "zeroconf": [
+    "_sentinelflash._tcp.local."
+  ]
+}

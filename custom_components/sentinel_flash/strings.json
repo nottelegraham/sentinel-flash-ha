@@ -1,0 +1,40 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Sentinel Flash",
+        "description": "Bridges on firmware 0.13.5 or later are found automatically. To add one on older firmware now, enter its address (for example ghl-bridge-1a2b.local); otherwise leave it empty.",
+        "data": {"host": "Bridge address (optional)"}
+      },
+      "zeroconf_confirm": {
+        "title": "Sentinel Flash found",
+        "description": "Set up Sentinel Flash with {name}? Other Sentinel Flash bridges on your network will then be added automatically."
+      }
+    },
+    "error": {"cannot_connect": "No Sentinel Flash answered at that address."},
+    "abort": {
+      "already_configured": "Sentinel Flash is already set up. New bridges are added automatically.",
+      "single_instance_allowed": "Sentinel Flash is already set up.",
+      "not_sentinel_flash": "That device did not identify itself as a Sentinel Flash."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Add a bridge by address",
+        "description": "For a bridge on firmware older than 0.13.5, which doesn't announce itself. Bridges on 0.13.5 or later are added automatically.",
+        "data": {"host": "Bridge address"}
+      }
+    },
+    "error": {"cannot_connect": "No Sentinel Flash answered at that address."}
+  },
+  "entity": {
+    "binary_sensor": {"online": {"name": "Online"}},
+    "sensor": {
+      "connected_device": {"name": "Connected device"},
+      "firmware": {"name": "Bridge firmware"},
+      "active_port": {"name": "Active port"}
+    }
+  }
+}
