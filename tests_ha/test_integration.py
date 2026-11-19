@@ -42,7 +42,7 @@ async def test_discovery_then_auto_add(hass, aioclient_mock):
                        json=status("ghl-bridge-test-01-06e0", board={"type": "shift", "port": 2}, product=51))
     with patch("custom_components.sentinel_flash._async_register_card"):
         r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
-                                                      data=zc("ghl-bridge-test", "192.168.1.50", "0a1b2c3d4e5f"))
+                                                      data=zc("ghl-bridge-test", "192.168.1.50", "68ee8f4c439c"))
         assert r["type"] is FlowResultType.FORM and r["step_id"] == "zeroconf_confirm"
         r = await hass.config_entries.flow.async_configure(r["flow_id"], {})
         assert r["type"] is FlowResultType.CREATE_ENTRY
@@ -67,10 +67,10 @@ async def test_discovery_then_auto_add(hass, aioclient_mock):
         # Same bridge rediscovered at a new address: record moves, nothing duplicated.
         aioclient_mock.get("http://192.168.1.77/api/status", json=status("ghl-bridge-test"))
         await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
-                                                  data=zc("ghl-bridge-test", "192.168.1.77", "0a1b2c3d4e5f"))
+                                                  data=zc("ghl-bridge-test", "192.168.1.77", "68ee8f4c439c"))
         await hass.async_block_till_done()
         entry = hass.config_entries.async_entries(DOMAIN)[0]
-        assert entry.data["bridges"]["0a1b2c3d4e5f"]["host"] == "192.168.1.77"
+        assert entry.data["bridges"]["68ee8f4c439c"]["host"] == "192.168.1.77"
         assert len(entry.data["bridges"]) == 2
 
 
@@ -78,7 +78,7 @@ async def test_offline_after_two_misses(hass, aioclient_mock):
     aioclient_mock.get("http://192.168.1.50/api/status", json=status("ghl-bridge-test"))
     with patch("custom_components.sentinel_flash._async_register_card"):
         r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
-                                                      data=zc("ghl-bridge-test", "192.168.1.50", "0a1b2c3d4e5f"))
+                                                      data=zc("ghl-bridge-test", "192.168.1.50", "68ee8f4c439c"))
         await hass.config_entries.flow.async_configure(r["flow_id"], {})
         await hass.async_block_till_done()
     assert hass.states.get("binary_sensor.ghl_bridge_test_online").state == "on"
@@ -97,7 +97,7 @@ async def test_offline_bridge_does_not_block_setup(hass, aioclient_mock):
     aioclient_mock.get("http://192.168.1.50/api/status", exc=TimeoutError())
     with patch("custom_components.sentinel_flash._async_register_card"):
         r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
-                                                      data=zc("ghl-bridge-test", "192.168.1.50", "0a1b2c3d4e5f"))
+                                                      data=zc("ghl-bridge-test", "192.168.1.50", "68ee8f4c439c"))
         r = await hass.config_entries.flow.async_configure(r["flow_id"], {})
         await hass.async_block_till_done()
     entry = hass.config_entries.async_entries(DOMAIN)[0]
@@ -134,11 +134,11 @@ async def test_delete_device_forgets_bridge(hass, aioclient_mock):
     aioclient_mock.get("http://192.168.1.50/api/status", json=status("ghl-bridge-test"))
     with patch("custom_components.sentinel_flash._async_register_card"):
         r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
-                                                      data=zc("ghl-bridge-test", "192.168.1.50", "0a1b2c3d4e5f"))
+                                                      data=zc("ghl-bridge-test", "192.168.1.50", "68ee8f4c439c"))
         await hass.config_entries.flow.async_configure(r["flow_id"], {})
         await hass.async_block_till_done()
     entry = hass.config_entries.async_entries(DOMAIN)[0]
-    dev = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, "0a1b2c3d4e5f")})
+    dev = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, "68ee8f4c439c")})
     assert await async_remove_config_entry_device(hass, entry, dev)
     assert entry.data["bridges"] == {}
 
@@ -148,7 +148,7 @@ async def test_options_add_by_address(hass, aioclient_mock):
     aioclient_mock.get("http://ghl-bridge-1a2b.local/api/status", json=status("ghl-bridge-1a2b", version="0.13.4"))
     with patch("custom_components.sentinel_flash._async_register_card"):
         r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
-                                                      data=zc("ghl-bridge-test", "192.168.1.50", "0a1b2c3d4e5f"))
+                                                      data=zc("ghl-bridge-test", "192.168.1.50", "68ee8f4c439c"))
         await hass.config_entries.flow.async_configure(r["flow_id"], {})
         await hass.async_block_till_done()
         entry = hass.config_entries.async_entries(DOMAIN)[0]
@@ -161,3 +161,59 @@ async def test_options_add_by_address(hass, aioclient_mock):
         await hass.async_block_till_done()
     assert hass.states.get("binary_sensor.ghl_bridge_1a2b_online").state == "on"
     assert len(entry.data["bridges"]) == 2
+
+
+async def test_network_watch_adds_every_bridge(hass, aioclient_mock):
+    """Bridges seen by the integration's own mDNS watch are added at once, several together."""
+    from types import SimpleNamespace
+    from zeroconf import ServiceStateChange
+    import zeroconf.asyncio as zca
+
+    aioclient_mock.get("http://192.168.1.50/api/status", json=status("ghl-bridge-test"))
+    aioclient_mock.get("http://192.168.1.51/api/status",
+                       json=status("ghl-bridge-test-01-06e0", board={"type": "shift", "port": 1}))
+    answers = {
+        "ghl-bridge-test._sentinelflash._tcp.local.": (["192.168.1.50", "fe80::1"], {b"id": b"0a1b2c3d4e5f", b"hw": b"devkit"}),
+        "ghl-bridge-test-01-06e0._sentinelflash._tcp.local.": (["192.168.1.51"], {b"id": b"aabbccdd06e0", b"hw": b"shift"}),
+        "junk._sentinelflash._tcp.local.": (["192.168.1.9"], {b"id": b"nothex"}),
+    }
+    handlers = []
+
+    class FakeBrowser:
+        def __init__(self, zc, types, handlers=None):
+            seen_handlers.extend(handlers or [])
+        async def async_cancel(self):
+            pass
+
+    seen_handlers = handlers
+
+    class FakeInfo:
+        def __init__(self, stype, name):
+            self.name, self.port = name, 80
+        async def async_request(self, zc, timeout):
+            addrs, props = answers[self.name]
+            self._addrs, self.properties = addrs, props
+            return True
+        def parsed_scoped_addresses(self):
+            return self._addrs
+
+    async def fake_instance(hass):
+        return SimpleNamespace(zeroconf=object())
+
+    with patch("custom_components.sentinel_flash._async_register_card"), \
+         patch("homeassistant.components.zeroconf.async_get_async_instance", fake_instance), \
+         patch.object(zca, "AsyncServiceBrowser", FakeBrowser), patch.object(zca, "AsyncServiceInfo", FakeInfo):
+        r = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+        await hass.config_entries.flow.async_configure(r["flow_id"], {"host": ""})
+        await hass.async_block_till_done()
+        assert len(handlers) == 1
+        for name in answers:
+            handlers[0](zeroconf=None, service_type="_sentinelflash._tcp.local.", name=name,
+                        state_change=ServiceStateChange.Added)
+        await hass.async_block_till_done()
+        await hass.async_block_till_done()
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    assert sorted(entry.data["bridges"]) == ["0a1b2c3d4e5f", "aabbccdd06e0"]
+    assert entry.data["bridges"]["0a1b2c3d4e5f"]["host"] == "192.168.1.50"  # IPv4, not the link-local IPv6
+    assert hass.states.get("binary_sensor.ghl_bridge_test_online").state == "on"
+    assert hass.states.get("sensor.ghl_bridge_test_01_06e0_active_port").state == "1"

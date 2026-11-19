@@ -7,6 +7,7 @@ Read-only: the only request made to a bridge is GET /api/status.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,8 @@ from .coordinator import BridgeCoordinator
 from .lovelace_resource import _collection, async_register_resource
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
-VERSION = "0.1.0"
+VERSION = "0.1.1"
+_LOGGER = logging.getLogger(__name__)
 
 type SentinelFlashConfigEntry = ConfigEntry[dict[str, BridgeCoordinator]]
 
@@ -80,12 +82,68 @@ async def _async_start_bridge(hass: HomeAssistant, entry: ConfigEntry, bridge: d
     return coord
 
 
+def bridge_from_service(name: str, port: int | None, addresses: list[str],
+                        properties: dict[Any, Any]) -> dict[str, Any] | None:
+    """Bridge record from an mDNS _sentinelflash._tcp answer, or None if it isn't one."""
+    props: dict[str, str] = {}
+    for k, v in (properties or {}).items():
+        if v is None:
+            continue
+        key = k.decode() if isinstance(k, bytes) else str(k)
+        props[key.lower()] = v.decode(errors="replace") if isinstance(v, bytes) else str(v)
+    bid = props.get("id", "").lower()
+    if len(bid) != 12 or any(c not in "0123456789abcdef" for c in bid):
+        return None
+    ipv4 = [a for a in addresses if ":" not in a]
+    if not ipv4:
+        return None
+    return {"id": bid, "host": ipv4[0], "port": int(port or 80),
+            "name": name.split("._sentinelflash", 1)[0], "hw": props.get("hw", "")}
+
+
+async def _async_watch_network(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Watch for _sentinelflash._tcp the whole time the integration runs, using
+    Home Assistant's own mDNS listener. Every bridge seen is added (or its new
+    address recorded) at once; no setup flow is involved, so nothing is lost
+    when several bridges appear together."""
+    from homeassistant.components import zeroconf as ha_zc
+    from zeroconf import ServiceStateChange
+    from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
+
+    aiozc = await ha_zc.async_get_async_instance(hass)
+    stype = "_sentinelflash._tcp.local."
+
+    async def resolve(name: str) -> None:
+        info = AsyncServiceInfo(stype, name)
+        if not await info.async_request(aiozc.zeroconf, 3000):
+            return
+        bridge = bridge_from_service(name, info.port, info.parsed_scoped_addresses(), info.properties)
+        if bridge is not None:
+            await async_add_or_update_bridge(hass, entry, bridge)
+
+    def on_change(zeroconf, service_type: str, name: str, state_change: ServiceStateChange) -> None:
+        if state_change in (ServiceStateChange.Added, ServiceStateChange.Updated):
+            hass.loop.call_soon_threadsafe(
+                lambda: entry.async_create_background_task(hass, resolve(name), f"{DOMAIN} resolve {name}"))
+
+    browser = AsyncServiceBrowser(aiozc.zeroconf, [stype], handlers=[on_change])
+
+    async def stop() -> None:
+        await browser.async_cancel()
+
+    entry.async_on_unload(stop)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: SentinelFlashConfigEntry) -> bool:
     entry.runtime_data = {}
     for bridge in entry.data.get(CONF_BRIDGES, {}).values():
         await _async_start_bridge(hass, entry, bridge)
     await _async_register_card(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        await _async_watch_network(hass, entry)
+    except Exception:  # noqa: BLE001 - discovery is a convenience; bridges already added keep working
+        _LOGGER.exception("Could not start watching for Sentinel Flash bridges")
     return True
 
 
